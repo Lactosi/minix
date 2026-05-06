@@ -6,7 +6,11 @@
 
 void print_tree(const char *path, int depth, int last[]) {
     DIR *dir = opendir(path);
-    if (!dir) return;
+    if (!dir) {
+        perror("opendir");
+        return;
+    }
+
     struct dirent *entry;
     struct stat st;
 
@@ -18,8 +22,14 @@ void print_tree(const char *path, int depth, int last[]) {
             strcmp(entry->d_name, "..") == 0)
             continue;
 
-        names[count] = strdup(entry->d_name);
-        count++;
+        if (count < 1024) {
+            names[count] = strdup(entry->d_name);
+            if (!names[count]) {
+                fprintf(stderr, "Error al duplicar cadena\n");
+                continue;
+            }
+            count++;
+        }
     }
 
     closedir(dir);
@@ -28,7 +38,11 @@ void print_tree(const char *path, int depth, int last[]) {
         char fullpath[1024];
         snprintf(fullpath, sizeof(fullpath), "%s/%s", path, names[i]);
 
-        lstat(fullpath, &st);
+        if (lstat(fullpath, &st) == -1) {
+            perror("lstat");
+            free(names[i]);
+            continue;
+        }
 
         for (int d = 0; d < depth; d++) {
             if (last[d])
