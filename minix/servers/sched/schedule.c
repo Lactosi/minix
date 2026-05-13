@@ -86,25 +86,26 @@ static void pick_cpu(struct schedproc * proc)
 
 int do_noquantum(message *m_ptr)
 {
-	register struct schedproc *rmp;
-	int rv, proc_nr_n;
+    register struct schedproc *rmp;
+    int rv, proc_nr_n;
 
-	if (sched_isokendpt(m_ptr->m_source, &proc_nr_n) != OK) {
-		printf("SCHED: WARNING: got an invalid endpoint in OOQ msg %u.\n",
-		m_ptr->m_source);
-		return EBADEPT;
-	}
+    if (sched_isokendpt(m_ptr->m_source, &proc_nr_n) != OK) {
+        printf("SCHED: WARNING: got an invalid endpoint in OOQ msg %u.\n",
+        m_ptr->m_source);
+        return EBADEPT;
+    }
 
-	rmp = &schedproc[proc_nr_n];
-	if (rmp->priority < MIN_USER_Q) {
-		rmp->priority += 1; /* lower priority */
-	}
+    rmp = &schedproc[proc_nr_n];
 
-	if ((rv = schedule_process_local(rmp)) != OK) {
-		return rv;
-	}
-	return OK;
+    /* incrementar contador de quantums */
+    rmp->quantum_counter++;
+
+    if ((rv = schedule_process_local(rmp)) != OK) {
+        return rv;
+    }
+    return OK;
 }
+
 
 /*===========================================================================*
  *				do_stop_scheduling			     *
@@ -126,6 +127,7 @@ int do_stop_scheduling(message *m_ptr)
 	}
 
 	rmp = &schedproc[proc_nr_n];
+	rmp->quantum_counter = 0;
 #ifdef CONFIG_SMP
 	cpu_proc[rmp->cpu]--;
 #endif
@@ -156,6 +158,7 @@ int do_start_scheduling(message *m_ptr)
 		return rv;
 	}
 	rmp = &schedproc[proc_nr_n];
+	rmp->quantum_counter = 0;
 
 	/* Populate process slot */
 	rmp->endpoint     = m_ptr->m_lsys_sched_scheduling_start.endpoint;
@@ -352,18 +355,28 @@ void init_scheduling(void)
  */
 void balance_queues(void)
 {
-	struct schedproc *rmp;
-	int r, proc_nr;
+    struct schedproc *rmp;
+    int r, proc_nr;
 
-	for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
-		if (rmp->flags & IN_USE) {
-			if (rmp->priority > rmp->max_priority) {
-				rmp->priority -= 1; /* increase priority */
-				schedule_process_local(rmp);
-			}
-		}
-	}
+    for (proc_nr=0, rmp=schedproc; proc_nr < NR_PROCS; proc_nr++, rmp++) {
+        if (rmp->flags & IN_USE) {
+            /* Penalización si agotó muchos quantums */
+            if (rmp->quantum_counter >= CPU_BOUND && rmp->priority < MIN_USER_Q) {
+                rmp->priority += 1; /* bajar prioridad */
+                schedule_process_local(rmp);
+            }
+            /* Recuperación si no agotó ninguno */
+            else if (rmp->quantum_counter == 0 && rmp->priority > rmp->max_priority) {
+                rmp->priority -= 1; /* subir prioridad */
+                schedule_process_local(rmp);
+            }
 
-	if ((r = sys_setalarm(balance_timeout, 0)) != OK)
-		panic("sys_setalarm failed: %d", r);
+            /* Reiniciar contador para la próxima ventana */
+            rmp->quantum_counter = 0;
+        }
+    }
+
+    if ((r = sys_setalarm(balance_timeout, 0)) != OK)
+        panic("sys_setalarm failed: %d", r);
 }
+
