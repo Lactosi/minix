@@ -5,6 +5,8 @@
 
 #include <minix/bitmap.h>
 
+#define CPU_BOUND 3
+
 /* EXTERN should be extern except in main.c, where we want to keep the struct */
 #ifdef _MAIN
 #undef EXTERN
@@ -21,6 +23,7 @@
  */
 
 EXTERN struct schedproc {
+	int quantum_counter;  /* numero de quantums completos consumidos en la ventana */
 	endpoint_t endpoint;	/* process endpoint id */
 	endpoint_t parent;	/* parent endpoint id */
 	unsigned flags;		/* flag bits */
